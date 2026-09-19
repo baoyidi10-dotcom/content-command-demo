@@ -89,6 +89,7 @@ button{font-family:inherit;cursor:pointer;color:inherit;background:none;border:n
 .navb{display:flex;gap:5px;margin-left:auto}
 .nb{padding:6px 12px;border:1px solid var(--border);font-size:9.5px;letter-spacing:.11em;color:var(--muted);transition:all .18s;border-radius:var(--r)}
 .nb:hover{color:var(--gold);border-color:var(--border2);transform:translateY(-1px)}
+.nb.active{color:var(--gold);border-color:var(--gold);background:rgba(244,196,48,.08)}
 
 /* calendar */
 .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:10px;margin-top:14px}
@@ -107,6 +108,26 @@ button{font-family:inherit;cursor:pointer;color:inherit;background:none;border:n
 .evt{background:var(--surface2);border-left:2px solid var(--gold2);padding:7px 9px;border-radius:0 var(--r) var(--r) 0}
 .evt .et{font-size:9px;letter-spacing:.09em;color:var(--gold2);line-height:1.4}
 .evt .es{font-size:8.5px;color:var(--muted);margin-top:2px;line-height:1.45}
+
+/* month view */
+.month{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:14px}
+.msum{grid-column:1/-1;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:10px 13px;font-size:10px;letter-spacing:.11em;color:var(--muted);display:flex;gap:13px;flex-wrap:wrap;align-items:center;font-variant-numeric:tabular-nums}
+.msum b{color:var(--cream);font-weight:600}
+.msum .mname b{color:var(--gold);font-weight:800;letter-spacing:.14em}
+.msum .live b{color:var(--pub)}
+.msum .pfc{display:inline-flex;align-items:center;gap:4px}
+.msum .pfc .fdot{width:5px;height:5px;border-radius:50%}
+.msum .mhint{margin-left:auto;font-size:8.5px;opacity:.65;letter-spacing:.14em}
+.mday{background:var(--surface);border:1px solid var(--border);min-height:96px;padding:6px 7px;display:flex;flex-direction:column;gap:4px;border-radius:var(--r);cursor:pointer;transition:border-color .15s}
+.mday:hover{border-color:var(--border2)}
+.mday.out{opacity:.32}
+.mday.today{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold),0 0 18px rgba(244,196,48,.12)}
+.mday .dnum{font-size:15px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.mday.today .dnum{color:var(--gold)}
+.mdots{display:flex;flex-wrap:wrap;gap:3px;align-items:center}
+.mdot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+.mmore{font-size:7.5px;letter-spacing:.06em;color:var(--muted)}
+.mevt{height:2px;background:var(--gold2);border-radius:2px;opacity:.7}
 
 /* cards */
 .card{background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--vc);display:flex;flex-direction:column;text-align:left;width:100%;position:relative;transition:transform .18s ease,box-shadow .18s ease;transform-style:preserve-3d;cursor:grab;border-radius:0 var(--r) var(--r) 0}
@@ -242,6 +263,12 @@ button{font-family:inherit;cursor:pointer;color:inherit;background:none;border:n
   .navb{margin-left:0}
   .card{min-height:0}
   .ag-day.drag-over{border-color:var(--gold);box-shadow:0 0 0 2px var(--gold),0 0 32px rgba(244,196,48,.3)}
+  .month{gap:4px}
+  .msum{gap:9px;padding:9px 10px;font-size:9px}
+  .msum .mhint{display:none}
+  .mday{min-height:56px;padding:4px 5px;gap:3px}
+  .mday .dnum{font-size:12px}
+  .mdot{width:6px;height:6px}
   .hero-banner{aspect-ratio:auto}
   .hero-banner img{height:150px}
   .hero-banner .hero-txt{position:static;background:var(--surface2);border-top:1px solid var(--border)}
@@ -291,14 +318,17 @@ button{font-family:inherit;cursor:pointer;color:inherit;background:none;border:n
     <div class="vchips" id="vchips"></div>
     <div class="fchips" id="fchips"></div>
     <div class="navb">
+      <button class="nb active" id="viewW">WEEK</button>
+      <button class="nb" id="viewM">MONTH</button>
       <button class="nb" id="prevW">&#8249; PREV</button>
-      <button class="nb" id="todayW">THIS WEEK</button>
+      <button class="nb" id="todayW">TODAY</button>
       <button class="nb" id="nextW">NEXT &#8250;</button>
     </div>
   </div>
 
   <div class="cal" id="cal"></div>
   <div class="agenda" id="agenda"></div>
+  <div class="month" id="month" style="display:none"></div>
 
   <div class="fband">
     <div class="hero-banner" id="heroBanner">
@@ -400,7 +430,7 @@ var SEED=[
 ];
 
 /* ===================== state ===================== */
-var posts=[],weekOffset=0,activeFilter="all",activeVenture="all",editing=null,blockMsg="",calm=false;
+var posts=[],weekOffset=0,monthOffset=0,viewMode=(location.hash==="#month")?"month":"week",activeFilter="all",activeVenture="all",editing=null,blockMsg="",calm=false;
 var logLines=[],nextId=21,draggedId=null;
 
 /* ===================== utils ===================== */
@@ -555,7 +585,17 @@ function weekVisible(){
 function allUnsealedHolding(){return posts.filter(function(p){return p.status!=="published"&&!p.reviewed})}
 function violations(){return posts.filter(function(p){return p.status==="published"&&!p.reviewed})}
 
-function renderAll(){renderVChips();renderFChips();renderStats();renderTelemetry();renderViolation();renderCal();renderAgenda()}
+function renderAll(){
+  renderVChips();renderFChips();renderStats();renderTelemetry();renderViolation();
+  var calEl=document.getElementById("cal"),agEl=document.getElementById("agenda"),moEl=document.getElementById("month");
+  var week=viewMode==="week";
+  calEl.style.display=week?"":"none";
+  agEl.style.display=week?"":"none";
+  moEl.style.display=week?"none":"grid";
+  if(week){renderCal();renderAgenda()}else{renderMonth()}
+  document.getElementById("viewW").classList.toggle("active",week);
+  document.getElementById("viewM").classList.toggle("active",!week);
+}
 
 function renderVChips(){
   var opts=[{v:"all",l:"ALL"},{v:"demo",l:"DEMO"}];
@@ -572,11 +612,12 @@ function renderFChips(){
   document.getElementById("fchips").innerHTML=html;
 }
 function renderStats(){
-  var v=weekVisible();
+  var month=viewMode==="month";
+  var v=month?monthVisible():weekVisible();
   var n=v.length,hold=v.filter(function(p){return p.status!=="published"&&!p.reviewed}).length;
   var sealed=v.filter(function(p){return p.reviewed&&p.status!=="published"}).length;
   var live=v.filter(function(p){return p.status==="published"}).length;
-  var tiles=[["POSTS THIS WEEK",n,"n"],["DRAFTS",hold,"hold"],["SCHEDULED",sealed,"sealed"],["PUBLISHED",live,"live"]];
+  var tiles=[[month?"POSTS THIS MONTH":"POSTS THIS WEEK",n,"n"],["DRAFTS",hold,"hold"],["SCHEDULED",sealed,"sealed"],["PUBLISHED",live,"live"]];
   document.getElementById("stats").innerHTML=tiles.map(function(t){
     return '<div class="stat" data-k="'+t[2]+'"><div class="n">'+t[1]+'</div><div class="l">'+t[0]+"</div></div>";
   }).join("");
@@ -645,6 +686,49 @@ function renderAgenda(){
       +'<button class="addb" data-act="add" data-date="'+c.iso+'">+ ADD</button>'
       +'</div></div>';
   }).join("");
+}
+
+/* ===================== month view ===================== */
+function monthStart(){var n=new Date();return new Date(n.getFullYear(),n.getMonth()+monthOffset,1)}
+function monthVisible(){
+  var ms=monthStart(),y=ms.getFullYear(),m=ms.getMonth();
+  return visible().filter(function(p){var d=parseISO(p.date);return d.getFullYear()===y&&d.getMonth()===m});
+}
+function renderMonth(){
+  var el=document.getElementById("month");
+  var ms=monthStart(),y=ms.getFullYear(),m=ms.getMonth();
+  var start=mondayOf(new Date(y,m,1));
+  var mv=monthVisible();
+  var st={draft:0,scheduled:0,published:0};
+  mv.forEach(function(p){if(st[p.status]!==undefined)st[p.status]++});
+  var name=ms.toLocaleDateString("en-GB",{month:"long",year:"numeric"}).toUpperCase();
+  var perPlat=Object.keys(PLATFORMS).map(function(k){
+    var c=mv.filter(function(p){return p.platform===k}).length;
+    return c?'<span class="pfc"><span class="fdot" style="background:'+PLATFORMS[k].c+'"></span><b>'+c+'</b>&nbsp;'+PLATFORMS[k].code+'</span>':"";
+  }).join("");
+  var html='<div class="msum"><span class="mname"><b>'+name+'</b></span>'
+    +'<span><b>'+mv.length+'</b> PLANNED</span>'
+    +'<span class="live"><b>'+st.published+'</b> LIVE</span>'
+    +'<span><b>'+st.scheduled+'</b> SCHEDULED</span>'
+    +'<span><b>'+st.draft+'</b> DRAFT</span>'
+    +perPlat
+    +'<span class="mhint">TAP A DAY \u2192 WEEK VIEW</span></div>';
+  var today=new Date();
+  for(var i=0;i<42;i++){
+    var d=addDays(start,i),iso=toISO(d),inMonth=d.getMonth()===m;
+    var dp=mv.filter(function(p){return p.date===iso}).sort(function(a,b){return String(a.time||"").localeCompare(String(b.time||""))||a.id-b.id});
+    var dots=dp.slice(0,10).map(function(p){
+      var pl=PLATFORMS[p.platform]||PLATFORMS.wechat;
+      return '<span class="mdot" style="background:'+pl.c+'" title="'+esc((p.time||"")+" \u00b7 "+p.title+" \u00b7 "+(STATUS[p.status]?STATUS[p.status].l:""))+'"></span>';
+    }).join("");
+    var more=dp.length>10?'<span class="mmore">+'+(dp.length-10)+'</span>':"";
+    html+='<div class="mday'+(inMonth?"":" out")+(sameDay(d,today)?" today":"")+'" data-iso="'+iso+'">'
+      +'<div class="dnum">'+d.getDate()+'</div>'
+      +(EVENTS[iso]?'<div class="mevt" title="'+esc(EVENTS[iso].t)+'"></div>':"")
+      +(dots||more?'<div class="mdots">'+dots+more+'</div>':"")
+      +'</div>';
+  }
+  el.innerHTML=html;
 }
 
 /* ===================== gate ===================== */
@@ -920,15 +1004,23 @@ document.addEventListener("click",function(e){
   if(vb){activeVenture=vb.getAttribute("data-v");activeFilter="all";renderAll();return}
   var pb=e.target.closest(".fchip");
   if(pb){activeFilter=pb.getAttribute("data-p");renderAll();return}
+  var md=e.target.closest(".mday");
+  if(md){
+    var d2=parseISO(md.getAttribute("data-iso"));
+    weekOffset=Math.round((mondayOf(d2)-mondayOf(new Date()))/604800000);
+    viewMode="week";renderAll();return;
+  }
 });
 document.addEventListener("pointerdown",function(e){
   var s=e.target.closest("[data-act=seal]");
   if(s){var c=s.closest(".card");if(c){e.preventDefault();startHold(c)}}
 });
 ["pointerup","pointercancel","pointerleave"].forEach(function(ev){document.addEventListener(ev,function(){cancelHold()})});
-document.getElementById("prevW").addEventListener("click",function(){weekOffset--;renderAll()});
-document.getElementById("nextW").addEventListener("click",function(){weekOffset++;renderAll()});
-document.getElementById("todayW").addEventListener("click",function(){weekOffset=0;renderAll()});
+document.getElementById("prevW").addEventListener("click",function(){if(viewMode==="month"){monthOffset--}else{weekOffset--}renderAll()});
+document.getElementById("nextW").addEventListener("click",function(){if(viewMode==="month"){monthOffset++}else{weekOffset++}renderAll()});
+document.getElementById("todayW").addEventListener("click",function(){weekOffset=0;monthOffset=0;renderAll()});
+document.getElementById("viewW").addEventListener("click",function(){viewMode="week";renderAll()});
+document.getElementById("viewM").addEventListener("click",function(){viewMode="month";renderAll()});
 document.getElementById("calmB").addEventListener("click",function(){
   calm=!calm;this.setAttribute("aria-pressed",String(calm));
   Particles.setCalm(calm);Beams.setCalm(calm);
@@ -943,8 +1035,8 @@ document.addEventListener("keydown",function(e){
   if(e.key==="Escape"&&editing){closeModal();return}
   var tag=(document.activeElement&&document.activeElement.tagName)||"";
   if(editing||tag==="INPUT"||tag==="TEXTAREA"||tag==="SELECT")return;
-  if(e.key==="ArrowLeft"){weekOffset--;renderAll()}
-  if(e.key==="ArrowRight"){weekOffset++;renderAll()}
+  if(e.key==="ArrowLeft"){if(viewMode==="month"){monthOffset--}else{weekOffset--}renderAll()}
+  if(e.key==="ArrowRight"){if(viewMode==="month"){monthOffset++}else{weekOffset++}renderAll()}
 });
 addEventListener("scroll",function(){document.getElementById("rail").setAttribute("data-scrolled",String(scrollY>8))},{passive:true});
 
