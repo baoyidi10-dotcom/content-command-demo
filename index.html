@@ -241,7 +241,14 @@ button{font-family:inherit;cursor:pointer;color:inherit;background:none;border:n
   .log{left:8px;right:8px;width:auto;bottom:8px}
   .navb{margin-left:0}
   .card{min-height:0}
+  .ag-day.drag-over{border-color:var(--gold);box-shadow:0 0 0 2px var(--gold),0 0 32px rgba(244,196,48,.3)}
+  .hero-banner{aspect-ratio:auto}
+  .hero-banner img{height:150px}
+  .hero-banner .hero-txt{position:static;background:var(--surface2);border-top:1px solid var(--border)}
+  .hero-banner h3{font-size:15px;line-height:1.35}
+  .hero-banner p{font-size:10.5px}
 }
+.drag-ghost{position:fixed;left:0;top:0;z-index:70;pointer-events:none;opacity:.92;margin:0;cursor:grabbing;box-shadow:0 14px 34px rgba(0,0,0,.6)}
 @media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
 </style>
 </head>
@@ -311,6 +318,10 @@ button{font-family:inherit;cursor:pointer;color:inherit;background:none;border:n
         <button class="car-nav next" data-car="photo" aria-label="Next photo">&#8250;</button>
       </div>
       <div class="car-dots" id="photoDots"></div>
+      <div class="io-btns" style="padding:0 13px 13px">
+        <button class="iob" id="addPhotosB">&#8679; ADD PHOTOS</button>
+        <input type="file" id="photosF" accept="image/*" multiple hidden>
+      </div>
     </div>
 
     <div class="fp">
@@ -816,6 +827,62 @@ document.addEventListener("drop",function(e){
   draggedId=null;
 });
 
+/* ===================== touch drag (mobile) ===================== */
+(function(){
+  var ghost=null,touchDragId=null,lpTimer=null,lpX=0,lpY=0,activeCol=null;
+  function colAt(x,y){
+    if(ghost)ghost.style.display="none";
+    var el=null;
+    try{el=document.elementFromPoint(x,y)}catch(ef){}
+    if(ghost)ghost.style.display="";
+    return el&&el.closest?el.closest(".day,.ag-day"):null;
+  }
+  function clearCol(){if(activeCol){activeCol.classList.remove("drag-over");activeCol=null}}
+  document.addEventListener("pointerdown",function(e){
+    if(e.pointerType!=="touch")return;
+    if(e.target.closest("[data-act=seal]")||e.target.closest("[data-act=cycle]"))return;
+    var c=e.target.closest(".card");if(!c)return;
+    lpX=e.clientX;lpY=e.clientY;
+    var card=c;
+    lpTimer=setTimeout(function(){lpTimer=null;startTouchDrag(card)},380);
+  },{passive:true});
+  document.addEventListener("pointermove",function(e){
+    if(lpTimer){
+      if(Math.abs(e.clientX-lpX)>10||Math.abs(e.clientY-lpY)>10){clearTimeout(lpTimer);lpTimer=null}
+      return;
+    }
+    if(touchDragId===null||!ghost)return;
+    ghost.style.transform="translate("+(e.clientX-110)+"px,"+(e.clientY-44)+"px)";
+    var col=colAt(e.clientX,e.clientY);
+    if(col!==activeCol){clearCol();activeCol=col;if(activeCol)activeCol.classList.add("drag-over")}
+  },{passive:true});
+  document.addEventListener("touchmove",function(e){
+    if(touchDragId!==null){e.preventDefault()}
+  },{passive:false});
+  ["pointerup","pointercancel"].forEach(function(ev){
+    document.addEventListener(ev,function(e){
+      if(lpTimer){clearTimeout(lpTimer);lpTimer=null}
+      if(touchDragId===null)return;
+      var col=colAt(e.clientX,e.clientY);
+      clearCol();
+      if(ghost){ghost.remove();ghost=null}
+      var id=touchDragId;touchDragId=null;
+      var p=findPost(id);if(!p)return;
+      var newDate=col&&col.getAttribute("data-iso");
+      if(newDate&&newDate!==p.date){p.date=newDate;save();renderAll();logit("MOVED",p.title.slice(0,28)+" \u2192 "+newDate);toast("\u27a1 "+p.title.slice(0,20)+" moved to "+newDate)}
+    },{passive:true});
+  });
+  function startTouchDrag(c){
+    touchDragId=parseInt(c.getAttribute("data-id"));
+    ghost=c.cloneNode(true);
+    ghost.classList.add("drag-ghost");
+    ghost.style.width=c.getBoundingClientRect().width+"px";
+    document.body.appendChild(ghost);
+    if(navigator.vibrate){try{navigator.vibrate(12)}catch(ev2){}}
+    logit("DRAG","hold over a day, release to drop");
+  }
+})();
+
 /* ===================== 3D tilt ===================== */
 document.addEventListener("pointermove",function(e){
   if(!matchMedia("(hover: hover)").matches)return;
@@ -905,13 +972,18 @@ addEventListener("scroll",function(){document.getElementById("rail").setAttribut
     return "data:image/svg+xml,"+encodeURIComponent(svg);
   });
   var VIDEO_CLIPS=[];
+  var PHOTOS_KEY="content-command-demo-photos-v1";
+  var userPhotos=[];
+  try{var storedPhotos=JSON.parse(localStorage.getItem(PHOTOS_KEY)||"[]");if(Array.isArray(storedPhotos))userPhotos=storedPhotos.filter(function(u){return typeof u==="string"&&u.indexOf("data:image/")===0})}catch(ep){userPhotos=[]}
   var carousels={};
+  function allPhotos(){return userPhotos.concat(DEMO_PHOTOS)}
+  function renderPhotoCarousel(){buildCarousel("photo","photoTrack","photoDots",allPhotos(),"photo")}
   function buildCarousel(key,trackId,dotsId,items,type){
     var track=document.getElementById(trackId),dots=document.getElementById(dotsId);
     if(!track||!dots)return;
     track.innerHTML=items.map(function(it,i){
       if(type==="photo"){
-        return '<div class="car-slide"><img src="'+it+'" alt="Demo media" loading="lazy"></div>';
+        return '<div class="car-slide"><img src="'+it+'" alt="Gallery photo" loading="lazy"></div>';
       }
       return '<div class="car-slide" data-idx="'+i+'">'+
         '<video poster="'+it.poster+'" preload="none" playsinline muted></video>'+
@@ -921,14 +993,60 @@ addEventListener("scroll",function(){document.getElementById("rail").setAttribut
     dots.innerHTML=items.map(function(_,i){return '<span class="car-dot'+(i===0?" active":"")+'"></span>'}).join("");
     var idx=0,n=items.length;
     function go(i){
+      if(!n)return;
       idx=((i%n)+n)%n;
       track.style.transform="translateX(-"+(idx*100)+"%)";
       for(var j=0;j<dots.children.length;j++)dots.children[j].classList.toggle("active",j===idx);
     }
     carousels[key]={go:go,next:function(){go(idx+1)},prev:function(){go(idx-1)},items:items};
   }
-  buildCarousel("photo","photoTrack","photoDots",DEMO_PHOTOS,"photo");
+  renderPhotoCarousel();
   buildCarousel("video","videoTrack","videoDots",VIDEO_CLIPS,"video");
+
+  /* photo upload — compressed, stored offline in localStorage */
+  function shrinkPhoto(url,maxDim,q,cb){
+    var img=new Image();
+    img.onload=function(){
+      var w=img.naturalWidth,h=img.naturalHeight;
+      if(!w||!h){cb(url);return}
+      var s=Math.min(1,maxDim/Math.max(w,h));
+      var c=document.createElement("canvas");c.width=Math.round(w*s);c.height=Math.round(h*s);
+      c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+      try{cb(c.toDataURL("image/jpeg",q))}catch(ej){cb(url)}
+    };
+    img.onerror=function(){cb(url)};
+    img.src=url;
+  }
+  var addPhotosB=document.getElementById("addPhotosB"),photosF=document.getElementById("photosF");
+  if(addPhotosB&&photosF){
+    addPhotosB.addEventListener("click",function(){photosF.click()});
+    photosF.addEventListener("change",function(e){
+      var files=Array.prototype.slice.call(e.target.files||[]);
+      e.target.value="";
+      if(!files.length)return;
+      var pending=files.length,done=[];
+      files.forEach(function(f){
+        var r=new FileReader();
+        r.onload=function(){
+          shrinkPhoto(String(r.result),1400,.82,function(small){
+            done.push(small);
+            if(--pending===0){
+              var merged=userPhotos.concat(done);
+              try{
+                localStorage.setItem(PHOTOS_KEY,JSON.stringify(merged));
+                userPhotos=merged;renderPhotoCarousel();
+                logit("MEDIA",done.length+" photo(s) added to gallery");
+                toast("\ud83d\udcf7 "+done.length+" photo(s) added");
+              }catch(err){
+                toast("\u26a0 Storage full — try fewer or smaller photos");
+              }
+            }
+          });
+        };
+        r.readAsDataURL(f);
+      });
+    });
+  }
 
   document.addEventListener("click",function(e){
     var nav=e.target.closest(".car-nav");
@@ -974,7 +1092,7 @@ addEventListener("scroll",function(){document.getElementById("rail").setAttribut
 load();
 var __crestImgEl=document.getElementById("crestImg");if(__crestImgEl)__crestImgEl.src="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20width%3D%27240%27%20height%3D%27240%27%3E%3Crect%20width%3D%27240%27%20height%3D%27240%27%20rx%3D%2726%27%20fill%3D%27%230a0f0a%27/%3E%3Ccircle%20cx%3D%27120%27%20cy%3D%27120%27%20r%3D%2788%27%20fill%3D%27none%27%20stroke%3D%27%23f4c430%27%20stroke-width%3D%274%27/%3E%3Ccircle%20cx%3D%27120%27%20cy%3D%27120%27%20r%3D%2776%27%20fill%3D%27none%27%20stroke%3D%27%23f4c430%27%20stroke-opacity%3D%27.3%27%20stroke-width%3D%271.5%27/%3E%3Ctext%20x%3D%27120%27%20y%3D%27140%27%20font-family%3D%27monospace%27%20font-size%3D%2764%27%20font-weight%3D%27bold%27%20fill%3D%27%23f4c430%27%20text-anchor%3D%27middle%27%3ECC%3C/text%3E%3Ctext%20x%3D%27120%27%20y%3D%27206%27%20font-family%3D%27monospace%27%20font-size%3D%2713%27%20letter-spacing%3D%274%27%20fill%3D%27%23f4c430%27%20fill-opacity%3D%27.8%27%20text-anchor%3D%27middle%27%3ECOMMAND%3C/text%3E%3C/svg%3E";
 var __introImgEl=document.getElementById("introImg");if(__introImgEl)__introImgEl.src="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20width%3D%27240%27%20height%3D%27240%27%3E%3Crect%20width%3D%27240%27%20height%3D%27240%27%20rx%3D%2726%27%20fill%3D%27%230a0f0a%27/%3E%3Ccircle%20cx%3D%27120%27%20cy%3D%27120%27%20r%3D%2788%27%20fill%3D%27none%27%20stroke%3D%27%23f4c430%27%20stroke-width%3D%274%27/%3E%3Ccircle%20cx%3D%27120%27%20cy%3D%27120%27%20r%3D%2776%27%20fill%3D%27none%27%20stroke%3D%27%23f4c430%27%20stroke-opacity%3D%27.3%27%20stroke-width%3D%271.5%27/%3E%3Ctext%20x%3D%27120%27%20y%3D%27140%27%20font-family%3D%27monospace%27%20font-size%3D%2764%27%20font-weight%3D%27bold%27%20fill%3D%27%23f4c430%27%20text-anchor%3D%27middle%27%3ECC%3C/text%3E%3Ctext%20x%3D%27120%27%20y%3D%27206%27%20font-family%3D%27monospace%27%20font-size%3D%2713%27%20letter-spacing%3D%274%27%20fill%3D%27%23f4c430%27%20fill-opacity%3D%27.8%27%20text-anchor%3D%27middle%27%3ECOMMAND%3C/text%3E%3C/svg%3E";
-var __heroImgEl=document.getElementById("heroImg");if(__heroImgEl)__heroImgEl.src="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20width%3D%27800%27%20height%3D%27500%27%3E%3Crect%20width%3D%27800%27%20height%3D%27500%27%20fill%3D%27%230a0f0a%27/%3E%3Cg%20stroke%3D%27%23f4c430%27%20stroke-opacity%3D%27.07%27%3E%3Cline%20x1%3D%270%27%20y1%3D%2750%27%20x2%3D%27800%27%20y2%3D%2750%27/%3E%3Cline%20x1%3D%270%27%20y1%3D%27100%27%20x2%3D%27800%27%20y2%3D%27100%27/%3E%3Cline%20x1%3D%270%27%20y1%3D%27150%27%20x2%3D%27800%27%20y2%3D%27150%27/%3E%3Cline%20x1%3D%270%27%20y1%3D%27200%27%20x2%3D%27800%27%20y2%3D%27200%27/%3E%3Cline%20x1%3D%270%27%20y1%3D%27250%27%20x2%3D%27800%27%20y2%3D%27250%27/%3E%3Cline%20x1%3D%270%27%20y1%3D%27300%27%20x2%3D%27800%27%20y2%3D%27300%27/%3E%3Cline%20x1%3D%270%27%20y1%3D%27350%27%20x2%3D%27800%27%20y2%3D%27350%27/%3E%3Cline%20x1%3D%270%27%20y1%3D%27400%27%20x2%3D%27800%27%20y2%3D%27400%27/%3E%3Cline%20x1%3D%270%27%20y1%3D%27450%27%20x2%3D%27800%27%20y2%3D%27450%27/%3E%3C/g%3E%3Crect%20x%3D%2740%27%20y%3D%2740%27%20width%3D%27720%27%20height%3D%27420%27%20fill%3D%27none%27%20stroke%3D%27%23f4c430%27%20stroke-opacity%3D%27.35%27%20stroke-width%3D%272%27/%3E%3Ctext%20x%3D%27400%27%20y%3D%27215%27%20font-family%3D%27monospace%27%20font-size%3D%2744%27%20letter-spacing%3D%2710%27%20fill%3D%27%23f4c430%27%20text-anchor%3D%27middle%27%3ECONTENT%3C/text%3E%3Ctext%20x%3D%27400%27%20y%3D%27275%27%20font-family%3D%27monospace%27%20font-size%3D%2744%27%20letter-spacing%3D%2710%27%20fill%3D%27%23f4c430%27%20text-anchor%3D%27middle%27%3ECOMMAND%3C/text%3E%3Ctext%20x%3D%27400%27%20y%3D%27340%27%20font-family%3D%27monospace%27%20font-size%3D%2716%27%20letter-spacing%3D%276%27%20fill%3D%27%23f4c430%27%20fill-opacity%3D%27.75%27%20text-anchor%3D%27middle%27%3ESINGLE%20FILE%20%C2%B7%20OFFLINE%20%C2%B7%20NO%20ACCOUNT%3C/text%3E%3Ctext%20x%3D%27400%27%20y%3D%27430%27%20font-family%3D%27monospace%27%20font-size%3D%2712%27%20letter-spacing%3D%274%27%20fill%3D%27%23f4c430%27%20fill-opacity%3D%27.5%27%20text-anchor%3D%27middle%27%3EDEMO%20BUILD%3C/text%3E%3C/svg%3E";
+var __heroImgEl=document.getElementById("heroImg");if(__heroImgEl)__heroImgEl.src="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20width%3D%27800%27%20height%3D%27500%27%3E%3Crect%20width%3D%27800%27%20height%3D%27500%27%20fill%3D%27%230a0f0a%27/%3E%3Cg%20stroke%3D%27%23f4c430%27%20stroke-opacity%3D%27.07%27%3E%3Cline%20x1%3D%270%27%20y1%3D%2750%27%20x2%3D%27800%27%20y2%3D%2750%27/%3E%3Cline%20x1%3D%270%27%20y1%3D%27100%27%20x2%3D%27800%27%20y2%3D%27100%27/%3E%3Cline%20x1%3D%270%27%20y1%3D%27150%27%20x2%3D%27800%27%20y2%3D%27150%27/%3E%3Cline%20x1%3D%270%27%20y1%3D%27200%27%20x2%3D%27800%27%20y2%3D%27200%27/%3E%3Cline%20x1%3D%270%27%20y1%3D%27250%27%20x2%3D%27800%27%20y2%3D%27250%27/%3E%3Cline%20x1%3D%270%27%20y1%3D%27300%27%20x2%3D%27800%27%20y2%3D%27300%27/%3E%3Cline%20x1%3D%270%27%20y1%3D%27350%27%20x2%3D%27800%27%20y2%3D%27350%27/%3E%3Cline%20x1%3D%270%27%20y1%3D%27400%27%20x2%3D%27800%27%20y2%3D%27400%27/%3E%3Cline%20x1%3D%270%27%20y1%3D%27450%27%20x2%3D%27800%27%20y2%3D%27450%27/%3E%3C/g%3E%3Crect%20x%3D%2740%27%20y%3D%2740%27%20width%3D%27720%27%20height%3D%27420%27%20fill%3D%27none%27%20stroke%3D%27%23f4c430%27%20stroke-opacity%3D%27.35%27%20stroke-width%3D%272%27/%3E%3Ctext%20x%3D%27400%27%20y%3D%27215%27%20font-family%3D%27monospace%27%20font-size%3D%2744%27%20letter-spacing%3D%2710%27%20fill%3D%27%23f4c430%27%20text-anchor%3D%27middle%27%3ECONTENT%3C/text%3E%3Ctext%20x%3D%27400%27%20y%3D%27275%27%20font-family%3D%27monospace%27%20font-size%3D%2744%27%20letter-spacing%3D%2710%27%20fill%3D%27%23f4c430%27%20text-anchor%3D%27middle%27%3ECOMMAND%3C/text%3E%3C/svg%3E";
 try{Particles.init()}catch(e){console.error("Particles.init failed:",e)}
 try{Beams.init()}catch(e){console.error("Beams.init failed:",e)}
 try{tickClock()}catch(e){console.error("tickClock failed:",e)}
