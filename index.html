@@ -355,7 +355,7 @@ button{font-family:inherit;cursor:pointer;color:inherit;background:none;border:n
     </div>
 
     <div class="fp">
-      <div class="fh"><span class="rec"></span>DATA &middot; EXPORT / IMPORT</div>
+      <div class="fh"><span class="rec"></span>VIDEO &amp; DATA &middot; EXPORT / IMPORT</div>
       <div class="car" id="videoCar" style="display:none">
         <div class="car-track" id="videoTrack"></div>
         <button class="car-nav prev" data-car="video" aria-label="Previous video">&#8249;</button>
@@ -363,9 +363,11 @@ button{font-family:inherit;cursor:pointer;color:inherit;background:none;border:n
       </div>
       <div class="car-dots" id="videoDots" style="display:none"></div>
       <div class="io-btns" style="padding:0 13px 13px">
+        <button class="iob" id="addVideosB">&#8679; ADD VIDEO</button>
         <button class="iob" id="expB">&#8681; EXPORT JSON</button>
         <button class="iob" id="impB">&#8679; IMPORT JSON</button>
         <input type="file" id="impF" accept=".json" hidden>
+        <input type="file" id="videosF" accept="video/*" multiple hidden>
       </div>
     </div>
   </div>
@@ -1064,6 +1066,58 @@ addEventListener("scroll",function(){document.getElementById("rail").setAttribut
     return "data:image/svg+xml,"+encodeURIComponent(svg);
   });
   var VIDEO_CLIPS=[];
+  var VIDEOS_DB="content-command-media",VIDEOS_STORE="videos";
+  var vidDB=null,userVideos=[];
+  function idbOpen(cb){
+    try{
+      var req=indexedDB.open(VIDEOS_DB,1);
+      req.onupgradeneeded=function(){var db=req.result;if(!db.objectStoreNames.contains(VIDEOS_STORE))db.createObjectStore(VIDEOS_STORE,{keyPath:"id",autoIncrement:true})};
+      req.onsuccess=function(){vidDB=req.result;cb&&cb()};
+      req.onerror=function(){vidDB=null;cb&&cb()};
+    }catch(ei){vidDB=null;cb&&cb()}
+  }
+  function idbAll(cb){
+    if(!vidDB)return cb([]);
+    var out=[];
+    try{
+      var tx=vidDB.transaction(VIDEOS_STORE,"readonly"),cur=tx.objectStore(VIDEOS_STORE).openCursor();
+      cur.onsuccess=function(){var c=cur.result;if(c){out.push(c.value);c.continue()}else{cb(out)}};
+      cur.onerror=function(){cb([])};
+    }catch(et){cb([])}
+  }
+  function idbPut(rec,cb){
+    if(!vidDB)return cb(null);
+    try{
+      var tx=vidDB.transaction(VIDEOS_STORE,"readwrite"),rq=tx.objectStore(VIDEOS_STORE).put(rec);
+      rq.onsuccess=function(){cb(rq.result)};
+      rq.onerror=function(){cb(null)};
+    }catch(eu2){cb(null)}
+  }
+  function videoPoster(file,cb){
+    var url=URL.createObjectURL(file),v=document.createElement("video"),done=false;
+    function finish(p){if(done)return;done=true;try{URL.revokeObjectURL(url)}catch(ev){}cb(p)}
+    v.muted=true;v.playsInline=true;v.preload="auto";v.src=url;
+    v.onloadeddata=function(){try{v.currentTime=Math.min(0.5,(v.duration||1)*0.1)}catch(es){grab()}};
+    v.onseeked=grab;
+    v.onerror=function(){finish("")};
+    function grab(){
+      if(done)return;
+      try{
+        var w=640,h=Math.round(640*((v.videoHeight||280)/(v.videoWidth||640)));
+        var c=document.createElement("canvas");c.width=w;c.height=h;
+        c.getContext("2d").drawImage(v,0,0,w,h);
+        finish(c.toDataURL("image/jpeg",0.72));
+      }catch(eg){finish("")}
+    }
+    setTimeout(function(){finish("")},6000);
+  }
+  function renderVideoCarousel(){
+    var items=userVideos.concat(VIDEO_CLIPS);
+    buildCarousel("video","videoTrack","videoDots",items,"video");
+    var has=items.length>0;
+    document.getElementById("videoCar").style.display=has?"":"none";
+    document.getElementById("videoDots").style.display=has?"":"none";
+  }
   var PHOTOS_KEY="content-command-demo-photos-v1";
   var userPhotos=[];
   try{var storedPhotos=JSON.parse(localStorage.getItem(PHOTOS_KEY)||"[]");if(Array.isArray(storedPhotos))userPhotos=storedPhotos.filter(function(u){return typeof u==="string"&&u.indexOf("data:image/")===0})}catch(ep){userPhotos=[]}
@@ -1093,7 +1147,8 @@ addEventListener("scroll",function(){document.getElementById("rail").setAttribut
     carousels[key]={go:go,next:function(){go(idx+1)},prev:function(){go(idx-1)},items:items};
   }
   renderPhotoCarousel();
-  buildCarousel("video","videoTrack","videoDots",VIDEO_CLIPS,"video");
+  renderVideoCarousel();
+  idbOpen(function(){idbAll(function(recs){recs.forEach(function(r){try{var u=URL.createObjectURL(r.blob);userVideos.push({src:u,poster:r.poster||"",label:r.name})}catch(eu){}});renderVideoCarousel()})});
 
   /* photo upload — compressed, stored offline in localStorage */
   function shrinkPhoto(url,maxDim,q,cb){
@@ -1138,6 +1193,50 @@ addEventListener("scroll",function(){document.getElementById("rail").setAttribut
         r.readAsDataURL(f);
       });
     });
+  }
+
+  /* video upload — stored in IndexedDB (blobs too large for localStorage) */
+  var addVideosB=document.getElementById("addVideosB"),videosF=document.getElementById("videosF");
+  if(addVideosB&&videosF){
+    addVideosB.addEventListener("click",function(){
+      if(!vidDB){toast("\u26a0 Video storage unavailable in this browser");return}
+      videosF.click();
+    });
+    videosF.addEventListener("change",function(e){
+      var files=Array.prototype.slice.call(e.target.files||[]);
+      e.target.value="";
+      if(!files.length)return;
+      var queue=files.filter(function(f){return (f.type||"").indexOf("video/")===0});
+      if(queue.length<files.length)toast("\u26a0 Skipped non-video files");
+      var MAXF=350*1024*1024;
+      function next(){
+        var f=queue.shift();
+        if(!f){checkStorage();return}
+        if(f.size>MAXF){toast("\ud83c\udfa5 "+f.name.slice(0,22)+" too large (max ~350MB)");next();return}
+        videoPoster(f,function(poster){
+          idbPut({name:f.name,type:f.type,size:f.size,blob:f,poster:poster,addedAt:Date.now()},function(id){
+            if(id===null||id===undefined){toast("\u26a0 Storage full — video not saved");return}
+            try{var u=URL.createObjectURL(f);userVideos.push({src:u,poster:poster,label:f.name})}catch(eu){}
+            logit("MEDIA","video added \u00b7 "+f.name.slice(0,26));
+            toast("\ud83c\udfa5 Video added");
+            renderVideoCarousel();
+            next();
+          });
+        });
+      }
+      next();
+    });
+  }
+  function checkStorage(){
+    if(navigator.storage&&navigator.storage.estimate){
+      navigator.storage.estimate().then(function(est){
+        var q=est.quota||0,u=est.usage||0;
+        if(!q)return;
+        var pct=Math.round(u/q*100);
+        if(pct>=80){toast("\u26a0 Browser storage "+pct+"% full — remove old clips")}
+        else if(pct>=50){logit("STORAGE",pct+"% of browser storage used")}
+      }).catch(function(){});
+    }
   }
 
   document.addEventListener("click",function(e){
@@ -1195,3 +1294,4 @@ try{logit("READY","content operations \u00b7 v4")}catch(e){console.error("logit 
 </script>
 </body>
 </html>
+
