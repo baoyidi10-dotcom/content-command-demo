@@ -1,0 +1,30 @@
+|A  B|
+|C\\u2013 D|
+|E\u2013 F|
+|G\\u00b7 H|
+|I\u00b7 J|
+|K\\u26a0 L|
+|M\u26a0 N|
+|O\\ud83c\\udfa5 P|
+|Q\ud83c\udfa5 R|
+|S\\ud83d\\udd13 T|
+|U\ud83d\udd13 V|
+|W\\u2014 X|
+|Y\u2014 Z|
+|1\\u26bf 2|
+|3\u26bf 4|
+|5\\u2192\u27a1 6|
+|7\u2192\u27a1 8|
+|9\\u2b06\u2b07 0|
+|a\u2b06\u2b07 b|
+|c\\ud83d\\u6ab1 d|
+|e\ud83d\u6ab1 f|
+|g\\u2013h|
+|i\u2013j|
+|k \u2013 l|
+|m\u2013n|
+|o\\25B6 p|
+|q\25B6 r|
+|s\\ t|
+|u\v w|
+|x\ u2013 y|
