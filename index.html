@@ -1136,14 +1136,16 @@ addEventListener("scroll",function(){document.getElementById("rail").setAttribut
   var userPhotos=[];
   try{var storedPhotos=JSON.parse(localStorage.getItem(PHOTOS_KEY)||"[]");if(Array.isArray(storedPhotos))userPhotos=storedPhotos.filter(function(u){return typeof u==="string"&&u.indexOf("data:image/")===0})}catch(ep){userPhotos=[]}
   var carousels={};
-  function allPhotos(){return userPhotos.concat(DEMO_PHOTOS)}
+  function allPhotos(){return userPhotos.map(function(u,i){return {src:u,pid:i}}).concat(DEMO_PHOTOS.map(function(u){return {src:u,pid:null}}))}
   function renderPhotoCarousel(){buildCarousel("photo","photoTrack","photoDots",allPhotos(),"photo")}
   function buildCarousel(key,trackId,dotsId,items,type){
     var track=document.getElementById(trackId),dots=document.getElementById(dotsId);
     if(!track||!dots)return;
     track.innerHTML=items.map(function(it,i){
       if(type==="photo"){
-        return '<div class="car-slide"><img src="'+it+'" alt="Gallery photo" loading="lazy"></div>';
+        return '<div class="car-slide"><img src="'+it.src+'" alt="Gallery photo" loading="lazy">'+
+        ((it.pid!==null&&it.pid!==undefined)?'<button class="car-del photo-del" data-pid="'+it.pid+'" data-armed="false">REMOVE</button>':"")+
+        '</div>';
       }
       return '<div class="car-slide" data-idx="'+i+'">'+
         '<video poster="'+it.poster+'" preload="none" playsinline muted></video>'+
@@ -1258,6 +1260,18 @@ addEventListener("scroll",function(){document.getElementById("rail").setAttribut
     var del=e.target.closest(".car-del");
     if(del){
       e.stopPropagation();
+      if(del.hasAttribute("data-pid")){
+        var pId=parseInt(del.getAttribute("data-pid"),10);
+        if(del.getAttribute("data-armed")==="true"){
+          userPhotos.splice(pId,1);
+          try{localStorage.setItem(PHOTOS_KEY,JSON.stringify(userPhotos))}catch(ep){}
+          renderPhotoCarousel();logit("MEDIA","photo removed");toast("Photo removed");
+        }else{
+          del.setAttribute("data-armed","true");del.textContent="CONFIRM";
+          setTimeout(function(){if(del.isConnected){del.setAttribute("data-armed","false");del.textContent="REMOVE"}},2500);
+        }
+        return;
+      }
       var vidId=parseInt(del.getAttribute("data-vid"));
       if(del.getAttribute("data-armed")==="true"){
         idbDel(vidId,function(ok){
